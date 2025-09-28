@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { MessageCircle, Settings, Sparkles, Copy, Download } from 'lucide-react';
+import { MessageCircle, Settings, Sparkles, Copy, Download, Wifi } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 
@@ -21,6 +21,8 @@ const MessageOrganizer = () => {
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'unknown'>('unknown');
   const [apiKey, setApiKey] = useState('');
   const [options, setOptions] = useState<ProcessingOptions>({
     sortBy: 'original',
@@ -28,6 +30,68 @@ const MessageOrganizer = () => {
     showOnlyIds: false,
   });
   const { toast } = useToast();
+
+  const checkConnection = async () => {
+    if (!apiKey.trim()) {
+      toast({
+        title: "خطأ",
+        description: "يرجى إدخال مفتاح API الخاص بـ Gemini",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsCheckingConnection(true);
+
+    try {
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + apiKey, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: 'مرحبا'
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.1,
+            topK: 1,
+            topP: 1,
+            maxOutputTokens: 10,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.candidates && data.candidates[0]) {
+        setConnectionStatus('connected');
+        toast({
+          title: "متصل",
+          description: "الاتصال مع Gemini API يعمل بشكل صحيح",
+          variant: "default",
+        });
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      setConnectionStatus('disconnected');
+      toast({
+        title: "خطأ في الاتصال",
+        description: "فشل الاتصال مع Gemini API. تحقق من المفتاح.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCheckingConnection(false);
+    }
+  };
 
   const processMessages = async () => {
     if (!inputText.trim()) {
@@ -308,25 +372,48 @@ const MessageOrganizer = () => {
               </div>
 
               {/* Process Button */}
-              <Button
-                onClick={processMessages}
-                disabled={isProcessing || !inputText.trim() || !apiKey.trim()}
-                className="w-full"
-                variant="whatsapp"
-                size="lg"
-              >
-                {isProcessing ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-foreground"></div>
-                    جاري المعالجة...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-5 w-5" />
-                    معالجة الرسائل
-                  </>
-                )}
-              </Button>
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  onClick={checkConnection}
+                  disabled={isCheckingConnection || !apiKey.trim()}
+                  variant="outline"
+                  size="lg"
+                >
+                  {isCheckingConnection ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                      جاري التحقق...
+                    </>
+                  ) : (
+                    <>
+                      <Wifi className={`h-5 w-5 ${
+                        connectionStatus === 'connected' ? 'text-success' : 
+                        connectionStatus === 'disconnected' ? 'text-destructive' : 
+                        'text-muted-foreground'
+                      }`} />
+                      اتصال
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={processMessages}
+                  disabled={isProcessing || !inputText.trim() || !apiKey.trim()}
+                  variant="whatsapp"
+                  size="lg"
+                >
+                  {isProcessing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-foreground"></div>
+                      جاري المعالجة...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-5 w-5" />
+                      معالجة الرسائل
+                    </>
+                  )}
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
