@@ -31,6 +31,18 @@ const MessageOrganizer = () => {
   });
   const { toast } = useToast();
 
+  // Function to count WhatsApp messages
+  const countWhatsAppMessages = (text: string) => {
+    if (!text.trim()) return 0;
+    
+    // Split by empty lines or double line breaks to separate messages
+    const messages = text.split(/\n\s*\n|\n{2,}/)
+      .map(msg => msg.trim())
+      .filter(msg => msg.length > 0);
+    
+    return messages.length;
+  };
+
   const checkConnection = async () => {
     if (!apiKey.trim()) {
       toast({
@@ -366,7 +378,7 @@ const MessageOrganizer = () => {
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
                   <span>عدد الأحرف: {inputText.length.toLocaleString('ar-EG')}</span>
                   <Badge variant="secondary">
-                    {inputText.split('\n').filter(line => line.trim()).length} سطر
+                    {countWhatsAppMessages(inputText)} رسالة واتساب
                   </Badge>
                 </div>
               </div>
@@ -453,7 +465,7 @@ const MessageOrganizer = () => {
                   <div className="flex items-center justify-between text-sm text-muted-foreground">
                     <span>عدد الأحرف: {outputText.length.toLocaleString('ar-EG')}</span>
                     <Badge variant="secondary">
-                      {outputText.split('\n').filter(line => line.trim()).length} سطر
+                      {countWhatsAppMessages(outputText)} رسالة معالجة
                     </Badge>
                   </div>
                 </div>
