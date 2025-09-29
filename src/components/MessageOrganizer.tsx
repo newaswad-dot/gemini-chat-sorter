@@ -29,6 +29,7 @@ const MessageOrganizer = () => {
     showOnlyIds: false,
   });
   const [hasProcessed, setHasProcessed] = useState(false);
+  const [messageCountSummary, setMessageCountSummary] = useState('');
   const { toast } = useToast();
   const autoSignature = useMemo(
     () =>
@@ -170,6 +171,9 @@ const MessageOrganizer = () => {
 - لا تُكتب المبالغ أبداً.
 - يمنع تعديل أو تغيير الاسم إطلاقاً، اكتبه كما ورد حرفياً في الرسالة الأصلية.
 - فرّق دائماً بين أرقام الهواتف وأرقام الايديهات. الأرقام اللبنانية التي تبدأ بـ+961 أو 03 أو 70 أو 71 أو 76 أو 78 أو 79 تعد أرقام هواتف وليست ايديهات.
+- الأرقام التي تحتوي على فراغات أو شرطة وتبدأ بعلامة + أو 00 تعامل كأرقام هواتف، ولا يجوز اعتبارها ايديهات.
+- أي رقم يظهر بجانب كلمة "وكالة" أو بعد سطر الوكالة يجب اعتباره ايدياً إلا إذا كان رقماً هاتفياً لبنانياً.
+- حلّل الرسائل رسالة رسالة بالتتابع؛ لا تنتقل للرسالة التالية حتى تنتهي من تنسيق الرسالة الحالية.
 
 1) إذا كانت الرسالة تحتوي على ايدي واحد:
 الاسم
@@ -184,6 +188,16 @@ const MessageOrganizer = () => {
 رقم الهاتف
 اسم الوكالة
 كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
+-------------------------
+المجموع :
+
+مثال توضيحي لرسالة تحتوي على أكثر من ايدي:
+مروان يوسف يوسفجه
+سوريا ادلب/ مشمشان
++0031669582
+وكالة موج لبحر
+48207546 ...
+48259631 ...
 -------------------------
 المجموع :
 
@@ -238,7 +252,7 @@ const MessageOrganizer = () => {
 - عامِل أرقام الهواتف اللبنانية (مثل +961، أو أرقام تبدأ بـ03، 70، 71، 76، 78، 79) كأرقام هواتف وليست ايديهات.
 - إذا لم يتوفر رقم الهاتف فاذكر "رقم الهاتف : غير متوفر".
 - حافظ على ترتيب الحقول كما هو موضح أعلاه.
-- بعد معالجة جميع الرسائل، أضف في النهاية سطر ملخص بالشكل "عدد الرسائل المحللة : X" حيث X هو عدد البطاقات التي قمت بتنظيمها بناءً على التحليل.
+- بعد معالجة جميع الرسائل، أضف في النهاية سطر ملخص بالشكل "عدد الرسائل المحللة : X" حيث X هو عدد البطاقات التي قمت بتنظيمها بناءً على التحليل. يجب أن يكون هذا السطر خارج أي بطاقة أو مجموعة ايديهات.
 ${optionsGuidance}
 `;
 
@@ -271,7 +285,17 @@ ${optionsGuidance}
         if (data.candidates && data.candidates[0] && data.candidates[0].content) {
           const result = data.candidates[0].content.parts[0].text?.trim();
           if (result) {
-            setOutputText(result);
+            const summaryMatch = result.match(/عدد الرسائل المحللة\s*:\s*\d+/);
+            let summaryLine = '';
+            let cleanedResult = result;
+
+            if (summaryMatch) {
+              summaryLine = summaryMatch[0].trim();
+              cleanedResult = result.replace(summaryMatch[0], '').trimEnd();
+            }
+
+            setOutputText(cleanedResult.trimEnd());
+            setMessageCountSummary(summaryLine);
             setHasProcessed(true);
             lastProcessedSignature.current = autoSignature;
             pendingAutoSignature.current = null;
@@ -283,6 +307,7 @@ ${optionsGuidance}
               });
             }
           } else {
+            setMessageCountSummary('');
             throw new Error('Empty response text');
           }
         } else {
@@ -290,6 +315,7 @@ ${optionsGuidance}
         }
       } catch (error) {
         console.error('Error processing messages:', error);
+        setMessageCountSummary('');
         toast({
           title: "خطأ في المعالجة",
           description: trigger === 'manual' ? "حدث خطأ أثناء معالجة الرسائل. يرجى المحاولة مرة أخرى." : "فشل تحديث الخيارات تلقائياً. حاول المعالجة يدوياً.",
@@ -357,7 +383,8 @@ ${optionsGuidance}
   }, [apiKey, autoSignature, hasProcessed, inputText, isProcessing, processMessages]);
 
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(outputText);
+    const fullText = messageCountSummary ? `${outputText}\n\n${messageCountSummary}`.trim() : outputText;
+    navigator.clipboard.writeText(fullText);
     toast({
       title: "تم النسخ",
       description: "تم نسخ النتيجة إلى الحافظة",
@@ -365,7 +392,8 @@ ${optionsGuidance}
   };
 
   const downloadResult = () => {
-    const blob = new Blob([outputText], { type: 'text/plain;charset=utf-8' });
+    const fullText = messageCountSummary ? `${outputText}\n\n${messageCountSummary}`.trim() : outputText;
+    const blob = new Blob([fullText], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -387,6 +415,7 @@ ${optionsGuidance}
     setConnectionStatus('unknown');
     setIsProcessing(false);
     setIsCheckingConnection(false);
+    setMessageCountSummary('');
     pendingAutoSignature.current = null;
     lastProcessedSignature.current = '';
   };
@@ -593,10 +622,15 @@ ${optionsGuidance}
                     readOnly
                     className="min-h-[400px] resize-none font-mono text-sm bg-muted/30"
                   />
+                  {messageCountSummary && (
+                    <div className="rounded-md border border-primary/30 bg-primary/5 px-4 py-2 text-sm font-medium text-primary">
+                      {messageCountSummary}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
                     <span>عدد الأحرف: {outputText.length.toLocaleString('ar-EG')}</span>
                     <span className="text-xs md:text-sm text-muted-foreground">
-                      راجع السطر الختامي لمعرفة عدد الرسائل المحللة من قبل الذكاء الاصطناعي.
+                      يظهر عدد الرسائل المحللة خارج الصندوق أعلى هذا السطر.
                     </span>
                   </div>
                 </div>
