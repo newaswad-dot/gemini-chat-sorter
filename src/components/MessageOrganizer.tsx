@@ -114,7 +114,13 @@ const MessageOrganizer = () => {
       }
     });
 
-    return groups.length;
+    const blocks = groups
+      .map(group => group.join('\n').trim())
+      .filter(block => block.length > 0);
+
+    const filteredBlocks = blocks.filter(block => !block.startsWith('عدد الرسائل'));
+
+    return filteredBlocks.length;
   };
 
   const checkConnection = async () => {
