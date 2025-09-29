@@ -257,6 +257,10 @@ const MessageOrganizer = () => {
           description: trigger === 'manual' ? "حدث خطأ أثناء معالجة الرسائل. يرجى المحاولة مرة أخرى." : "فشل تحديث الخيارات تلقائياً. حاول المعالجة يدوياً.",
           variant: "destructive",
         });
+        if (trigger === 'auto') {
+          lastProcessedSignature.current = autoSignature;
+          pendingAutoSignature.current = null;
+        }
       } finally {
         setIsProcessing(false);
       }
