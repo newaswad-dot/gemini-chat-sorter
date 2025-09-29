@@ -16,13 +16,35 @@ interface ProcessingOptions {
   showOnlyIds: boolean;
 }
 
+const STORAGE_KEYS = {
+  apiKey: 'gemini_api_key',
+  apiEndpoint: 'gemini_api_endpoint',
+} as const;
+
+const DEFAULT_API_KEY = 'AIzaSyCynyALJ4poVtL2Pm68ZBxkAft_-X7i-yc';
+const DEFAULT_API_ENDPOINT =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent';
+
+const getInitialStoredValue = (storageKey: string, fallback: string) => {
+  if (typeof window !== 'undefined') {
+    const storedValue = window.localStorage.getItem(storageKey);
+    if (storedValue !== null) {
+      return storedValue;
+    }
+  }
+  return fallback;
+};
+
 const MessageOrganizer = () => {
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'unknown'>('unknown');
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState<string>(() => getInitialStoredValue(STORAGE_KEYS.apiKey, DEFAULT_API_KEY));
+  const [apiEndpoint, setApiEndpoint] = useState<string>(() =>
+    getInitialStoredValue(STORAGE_KEYS.apiEndpoint, DEFAULT_API_ENDPOINT)
+  );
   const [options, setOptions] = useState<ProcessingOptions>({
     sortBy: 'original',
     mergeDuplicates: false,
@@ -31,14 +53,29 @@ const MessageOrganizer = () => {
   const [hasProcessed, setHasProcessed] = useState(false);
   const [messageCountSummary, setMessageCountSummary] = useState('');
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(STORAGE_KEYS.apiKey, apiKey);
+  }, [apiKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(STORAGE_KEYS.apiEndpoint, apiEndpoint);
+  }, [apiEndpoint]);
   const autoSignature = useMemo(
     () =>
       JSON.stringify({
         input: inputText,
         options,
         apiKey,
+        apiEndpoint,
       }),
-    [apiKey, inputText, options]
+    [apiEndpoint, apiKey, inputText, options]
   );
   const lastProcessedSignature = useRef<string>('');
   const pendingAutoSignature = useRef<string | null>(null);
@@ -53,10 +90,23 @@ const MessageOrganizer = () => {
       return;
     }
 
+    if (!apiEndpoint.trim()) {
+      toast({
+        title: "خطأ",
+        description: "يرجى إدخال رابط واجهة Gemini API",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsCheckingConnection(true);
 
     try {
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + apiKey, {
+      const trimmedEndpoint = apiEndpoint.trim();
+      const key = encodeURIComponent(apiKey.trim());
+      const requestUrl = `${trimmedEndpoint}${trimmedEndpoint.includes('?') ? '&' : '?'}key=${key}`;
+
+      const response = await fetch(requestUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -123,6 +173,17 @@ const MessageOrganizer = () => {
           toast({
             title: "خطأ",
             description: "يرجى إدخال مفتاح API الخاص بـ Gemini",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
+
+      if (!apiEndpoint.trim()) {
+        if (trigger === 'manual') {
+          toast({
+            title: "خطأ",
+            description: "يرجى إدخال رابط واجهة Gemini API",
             variant: "destructive",
           });
         }
@@ -256,7 +317,11 @@ const MessageOrganizer = () => {
 ${optionsGuidance}
 `;
 
-        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + apiKey, {
+        const trimmedEndpoint = apiEndpoint.trim();
+        const key = encodeURIComponent(apiKey.trim());
+        const requestUrl = `${trimmedEndpoint}${trimmedEndpoint.includes('?') ? '&' : '?'}key=${key}`;
+
+        const response = await fetch(requestUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -325,7 +390,7 @@ ${optionsGuidance}
         setIsProcessing(false);
       }
     },
-    [apiKey, autoSignature, inputText, options, toast]
+    [apiEndpoint, apiKey, autoSignature, inputText, options, toast]
   );
 
   useEffect(() => {
@@ -333,7 +398,7 @@ ${optionsGuidance}
       return;
     }
 
-    if (!inputText.trim() || !apiKey.trim()) {
+    if (!inputText.trim() || !apiKey.trim() || !apiEndpoint.trim()) {
       return;
     }
 
@@ -348,7 +413,7 @@ ${optionsGuidance}
 
     pendingAutoSignature.current = null;
     processMessages('auto');
-  }, [apiKey, autoSignature, hasProcessed, inputText, isProcessing, options, processMessages]);
+  }, [apiEndpoint, apiKey, autoSignature, hasProcessed, inputText, isProcessing, options, processMessages]);
 
   useEffect(() => {
     if (!pendingAutoSignature.current) {
@@ -360,7 +425,7 @@ ${optionsGuidance}
       return;
     }
 
-    if (!inputText.trim() || !apiKey.trim()) {
+    if (!inputText.trim() || !apiKey.trim() || !apiEndpoint.trim()) {
       pendingAutoSignature.current = null;
       return;
     }
@@ -380,7 +445,7 @@ ${optionsGuidance}
     if (signatureToRun) {
       processMessages('auto');
     }
-  }, [apiKey, autoSignature, hasProcessed, inputText, isProcessing, processMessages]);
+  }, [apiEndpoint, apiKey, autoSignature, hasProcessed, inputText, isProcessing, processMessages]);
 
   const copyToClipboard = () => {
     const fullText = messageCountSummary ? `${outputText}\n\n${messageCountSummary}`.trim() : outputText;
@@ -470,6 +535,21 @@ ${optionsGuidance}
                 </p>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="apiEndpoint">رابط واجهة Gemini API</Label>
+                <Input
+                  id="apiEndpoint"
+                  type="text"
+                  placeholder="أدخل رابط واجهة Gemini API"
+                  value={apiEndpoint}
+                  onChange={(e) => setApiEndpoint(e.target.value)}
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  استخدم الرابط الافتراضي أو عدّله إذا كنت تفضّل نموذجاً أو إصداراً مختلفاً من Gemini.
+                </p>
+              </div>
+
               <Separator />
 
               {/* Processing Options */}
@@ -547,7 +627,7 @@ ${optionsGuidance}
               <div className="grid grid-cols-2 gap-3">
                 <Button
                   onClick={checkConnection}
-                  disabled={isCheckingConnection || !apiKey.trim()}
+                  disabled={isCheckingConnection || !apiKey.trim() || !apiEndpoint.trim()}
                   variant="outline"
                   size="lg"
                 >
@@ -569,7 +649,7 @@ ${optionsGuidance}
                 </Button>
                 <Button
                   onClick={() => processMessages()}
-                  disabled={isProcessing || !inputText.trim() || !apiKey.trim()}
+                  disabled={isProcessing || !inputText.trim() || !apiKey.trim() || !apiEndpoint.trim()}
                   variant="whatsapp"
                   size="lg"
                 >
