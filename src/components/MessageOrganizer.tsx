@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { MessageCircle, Settings, Sparkles, Copy, Download, Wifi } from 'lucide-react';
+import { MessageCircle, Settings, Sparkles, Copy, Download, Wifi, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
 
@@ -29,18 +29,32 @@ const MessageOrganizer = () => {
     mergeDuplicates: false,
     showOnlyIds: false,
   });
+  const [hasProcessed, setHasProcessed] = useState(false);
   const { toast } = useToast();
+  const autoSignature = useMemo(
+    () =>
+      JSON.stringify({
+        input: inputText,
+        options,
+        apiKey,
+      }),
+    [apiKey, inputText, options]
+  );
+  const lastProcessedSignature = useRef<string>('');
+  const pendingAutoSignature = useRef<string | null>(null);
 
   // Function to count WhatsApp messages
   const countWhatsAppMessages = (text: string) => {
     if (!text.trim()) return 0;
-    
-    // Split by empty lines or double line breaks to separate messages
-    const messages = text.split(/\n\s*\n|\n{2,}/)
-      .map(msg => msg.trim())
-      .filter(msg => msg.length > 0);
-    
-    return messages.length;
+
+    const normalized = text.replace(/\r\n/g, '\n');
+
+    const blocks = normalized
+      .split(/(?:\n\s*\n)+|(?:^|\n)(?:\*{3,}|[-=]{5,}|_{5,}|المجموع\s*:?.*)(?:\n|$)/)
+      .map(block => block.trim())
+      .filter(Boolean);
+
+    return blocks.length;
   };
 
   const checkConnection = async () => {
@@ -105,147 +119,204 @@ const MessageOrganizer = () => {
     }
   };
 
-  const processMessages = async () => {
-    if (!inputText.trim()) {
-      toast({
-        title: "خطأ",
-        description: "يرجى إدخال النص المراد معالجته",
-        variant: "destructive",
-      });
-      return;
-    }
+  const processMessages = useCallback(
+    async (trigger: 'manual' | 'auto' = 'manual') => {
+      if (!inputText.trim()) {
+        if (trigger === 'manual') {
+          toast({
+            title: "خطأ",
+            description: "يرجى إدخال النص المراد معالجته",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
 
-    if (!apiKey.trim()) {
-      toast({
-        title: "خطأ",
-        description: "يرجى إدخال مفتاح API الخاص بـ Gemini",
-        variant: "destructive",
-      });
-      return;
-    }
+      if (!apiKey.trim()) {
+        if (trigger === 'manual') {
+          toast({
+            title: "خطأ",
+            description: "يرجى إدخال مفتاح API الخاص بـ Gemini",
+            variant: "destructive",
+          });
+        }
+        return;
+      }
 
-    setIsProcessing(true);
+      setIsProcessing(true);
 
-    try {
-      const systemPrompt = `
-أنت مساعد ذكي متخصص في ترتيب رسائل واتساب الخاصة بوكالات العملة المشفرة.
+      try {
+        const systemPrompt = `
+أنت مساعد متخصص في ترتيب رسائل واتساب الخاصة بوكالات العملة المشفرة.
 
-مهمتك: استخراج وترتيب المعلومات التالية من كل رسالة:
-- الاسم
-- العنوان  
-- الايدي
-- رقم الهاتف
-- اسم الوكالة
+التزم بالقواعد التالية بلا أي رموز تعبيرية أو أيقونات:
 
-قواعد التنسيق:
+1) إذا كانت الرسالة تحتوي على ايدي واحد فرتبها بهذا الشكل:
+الاسم
+العنوان
+الايدي
+رقم الهاتف
+اسم الوكالة
 
-1) إذا كانت الرسالة تحتوي على ايدي واحد:
-👤 الاسم
-📍 العنوان
-🔑 الايدي
-📞 رقم الهاتف
-🏢 اسم الوكالة
+2) إذا كانت تحتوي على أكثر من ايدي فرتب الحقول أولاً ثم ضع الايديهات بعد فراغ واحد بين الحقول والايديهات:
+الاسم
+العنوان
+رقم الهاتف
+اسم الوكالة
 
-2) إذا كانت تحتوي على أكثر من ايدي:
-👤 الاسم
-📍 العنوان
-📞 رقم الهاتف
-🏢 اسم الوكالة
+<الايدي الأول>
+<الايدي الثاني>
+...
+----------------------
+المجموع :
 
-🔑 الايدي
-🔑 الايدي
-════════════════
-المجموع : <عدد الايديهات>
+3) إذا كانت تحتوي على طريقة تحويل من (الهرم، الفؤاد، شام كاش، شحن براتب، خصم من النسبة) فأضف سطر ملاحظة بصيغة "ملاحظة : <اسم الطريقة>" بين رقم الهاتف واسم الوكالة واتباع نفس أسلوب الايديهات في القاعدة السابقة.
 
-3) إذا كانت تحتوي على طريقة تحويل (الهرم، الفؤاد، شام كاش، شحن براتب، خصم من النسبة):
-👤 الاسم
-📍 العنوان
-📞 رقم الهاتف
-💳 ملاحظة : (نوع التحويل)
-🏢 اسم الوكالة
+4) إذا عثرت على عنوان محفظة hex (مثل 12776fae8670d360a11c2d1c5202103c) فأضف بعد سطر الملاحظة سطراً يحتوي على عنوان المحفظة نفسه ثم تابع بالحقول الأخرى مع المحافظة على نفس ترتيب القاعدة الثالثة، واجعل الملاحظة دائماً "ملاحظة : شام كاش".
 
-🔑 الايدي
-🔑 الايدي
-════════════════
-المجموع : <عدد الايديهات>
+5) إذا كانت الرسالة بالأساس فقط على شكل "الايدي" و"اسم الوكالة" أو ترتيب مشابه مختصر فلا تغيّر ترتيب السطور الأصلي وأبقها كما وصلت.
 
-4) إذا كانت تحتوي على عنوان محفظة (hex):
-👤 الاسم
-📍 العنوان
-📞 رقم الهاتف
-💳 ملاحظة : شام كاش
-👜 <عنوان المحفظة>
-🏢 اسم الوكالة
+6) كل رسالة تتحول إلى بطاقة مستقلة، وبين كل بطاقة وأخرى سطر فارغ واحد فقط.
 
-🔑 الايدي
-🔑 الايدي
-════════════════
-المجموع : <عدد الايديهات>
+7) لا تكتب أي مبالغ مالية إطلاقاً.
 
-5) إذا كانت الرسالة فقط:
-🔑 الايدي
-🏢 اسم الوكالة
-→ تُترك كما هي
-
-خيارات المعالجة:
+8) خيارات المعالجة الحالية:
 - ترتيب: ${options.sortBy === 'agency' ? 'حسب الوكالة' : options.sortBy === 'location' ? 'حسب العنوان' : options.sortBy === 'amount' ? 'حسب المبلغ' : 'الترتيب الأصلي'}
 - دمج المكرر: ${options.mergeDuplicates ? 'نعم' : 'لا'}
 - إظهار الايديهات فقط: ${options.showOnlyIds ? 'نعم' : 'لا'}
 
-أضف في النهاية:
-📊 عدد الرسائل : <العدد>
+عند دمج المكرر (إذا كان الخيار مفعلًا) ادمج الرسائل التي تحمل الاسم نفسه تماماً حتى لو كانت الايديهات مختلفة. غير ذلك لا تدمج.
 
-لا تكتب المبالغ أبداً، واستبعدها من النتيجة.
+عند تفعيل خيار إظهار الايديهات فقط، اعرضها بهذه الصيغة:
+وكالة <اسم الوكالة>
+<ID1>
+<ID2>
+... وإذا لم تعرف الوكالة ضع "وكالة غير معروفة".
+
+تعليمات إضافية مهمة:
+- عامل أرقام الهواتف اللبنانية (مثل +961 أو ما يبدأ بـ03 أو 70 أو 71 أو 76 أو 78 أو 79) كأرقام هاتف وليست ايديهات.
+- إذا لم يتوفر رقم الهاتف فاكتب "رقم الهاتف : غير متوفر".
+- لا تضف أي رموز أو فواصل غير مطلوبة.
+- اترك سطر "المجموع :" بدون أي أرقام أو كلمات بعد النقطتين.
+- لا تهمل أي رسالة حتى وإن بدت مكررة أو غير مكتملة.
+- اذكر في نهاية الخرج "عدد الرسائل : <العدد>" مع العدد الفعلي للرسائل بعد المعالجة.
+
+هذا هو النص المطلوب ترتيبه:
 `;
 
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + apiKey, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: systemPrompt + '\n\nالنص المراد معالجته:\n' + inputText
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.1,
-            topK: 1,
-            topP: 1,
-            maxOutputTokens: 8192,
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + apiKey, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
           },
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
-      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-        const result = data.candidates[0].content.parts[0].text;
-        setOutputText(result);
-        toast({
-          title: "تم بنجاح",
-          description: "تم معالجة الرسائل وترتيبها",
-          variant: "default",
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: systemPrompt + '\n\nالنص المراد معالجته:\n' + inputText
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.1,
+              topK: 1,
+              topP: 1,
+              maxOutputTokens: 8192,
+            },
+          }),
         });
-      } else {
-        throw new Error('Invalid response format');
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+          const result = data.candidates[0].content.parts[0].text?.trim();
+          if (result) {
+            setOutputText(result);
+            setHasProcessed(true);
+            lastProcessedSignature.current = autoSignature;
+            pendingAutoSignature.current = null;
+            if (trigger === 'manual') {
+              toast({
+                title: "تم بنجاح",
+                description: "تم معالجة الرسائل وترتيبها",
+                variant: "default",
+              });
+            }
+          } else {
+            throw new Error('Empty response text');
+          }
+        } else {
+          throw new Error('Invalid response format');
+        }
+      } catch (error) {
+        console.error('Error processing messages:', error);
+        toast({
+          title: "خطأ في المعالجة",
+          description: trigger === 'manual' ? "حدث خطأ أثناء معالجة الرسائل. يرجى المحاولة مرة أخرى." : "فشل تحديث الخيارات تلقائياً. حاول المعالجة يدوياً.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsProcessing(false);
       }
-    } catch (error) {
-      console.error('Error processing messages:', error);
-      toast({
-        title: "خطأ في المعالجة",
-        description: "حدث خطأ أثناء معالجة الرسائل. يرجى المحاولة مرة أخرى.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsProcessing(false);
+    },
+    [apiKey, autoSignature, inputText, options, toast]
+  );
+
+  useEffect(() => {
+    if (!hasProcessed) {
+      return;
     }
-  };
+
+    if (!inputText.trim() || !apiKey.trim()) {
+      return;
+    }
+
+    if (autoSignature === lastProcessedSignature.current) {
+      return;
+    }
+
+    if (isProcessing) {
+      pendingAutoSignature.current = autoSignature;
+      return;
+    }
+
+    pendingAutoSignature.current = null;
+    processMessages('auto');
+  }, [apiKey, autoSignature, hasProcessed, inputText, isProcessing, options, processMessages]);
+
+  useEffect(() => {
+    if (!pendingAutoSignature.current) {
+      return;
+    }
+
+    if (!hasProcessed) {
+      pendingAutoSignature.current = null;
+      return;
+    }
+
+    if (!inputText.trim() || !apiKey.trim()) {
+      pendingAutoSignature.current = null;
+      return;
+    }
+
+    if (isProcessing) {
+      return;
+    }
+
+    if (autoSignature === lastProcessedSignature.current) {
+      pendingAutoSignature.current = null;
+      return;
+    }
+
+    const signatureToRun = pendingAutoSignature.current;
+    pendingAutoSignature.current = null;
+
+    if (signatureToRun) {
+      processMessages('auto');
+    }
+  }, [apiKey, autoSignature, hasProcessed, inputText, isProcessing, processMessages]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(outputText);
@@ -269,6 +340,24 @@ const MessageOrganizer = () => {
       title: "تم التحميل",
       description: "تم تحميل النتيجة كملف نصي",
     });
+  };
+
+  const clearOutput = () => {
+    setOutputText('');
+    setHasProcessed(false);
+    pendingAutoSignature.current = null;
+    lastProcessedSignature.current = '';
+  };
+
+  const clearAll = () => {
+    setInputText('');
+    setOutputText('');
+    setHasProcessed(false);
+    setConnectionStatus('unknown');
+    setIsProcessing(false);
+    setIsCheckingConnection(false);
+    pendingAutoSignature.current = null;
+    lastProcessedSignature.current = '';
   };
 
   return (
@@ -375,11 +464,17 @@ const MessageOrganizer = () => {
                   onChange={(e) => setInputText(e.target.value)}
                   className="min-h-[300px] resize-none"
                 />
-                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
                   <span>عدد الأحرف: {inputText.length.toLocaleString('ar-EG')}</span>
-                  <Badge variant="secondary">
-                    {countWhatsAppMessages(inputText)} رسالة واتساب
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">
+                      {countWhatsAppMessages(inputText)} رسالة مدخلة
+                    </Badge>
+                    <Button onClick={clearAll} variant="ghost" size="sm" disabled={!inputText && !outputText}>
+                      <Trash2 className="h-4 w-4" />
+                      مسح الكل
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -408,7 +503,7 @@ const MessageOrganizer = () => {
                   )}
                 </Button>
                 <Button
-                  onClick={processMessages}
+                  onClick={() => processMessages()}
                   disabled={isProcessing || !inputText.trim() || !apiKey.trim()}
                   variant="whatsapp"
                   size="lg"
@@ -447,6 +542,10 @@ const MessageOrganizer = () => {
                       <Download className="h-4 w-4" />
                       تحميل
                     </Button>
+                    <Button onClick={clearOutput} variant="ghost" size="sm">
+                      <Trash2 className="h-4 w-4" />
+                      مسح النتيجة
+                    </Button>
                   </div>
                 )}
               </div>
@@ -462,10 +561,10 @@ const MessageOrganizer = () => {
                     readOnly
                     className="min-h-[400px] resize-none font-mono text-sm bg-muted/30"
                   />
-                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
                     <span>عدد الأحرف: {outputText.length.toLocaleString('ar-EG')}</span>
                     <Badge variant="secondary">
-                      {countWhatsAppMessages(outputText)} رسالة معالجة
+                      {countWhatsAppMessages(outputText)} رسالة في النتيجة
                     </Badge>
                   </div>
                 </div>
