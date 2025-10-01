@@ -19,11 +19,113 @@ interface ProcessingOptions {
 const STORAGE_KEYS = {
   apiKey: 'gemini_api_key',
   apiEndpoint: 'gemini_api_endpoint',
+  customPrompt: 'gemini_custom_prompt',
 } as const;
 
 const DEFAULT_API_KEY = 'AIzaSyCynyALJ4poVtL2Pm68ZBxkAft_-X7i-yc';
 const DEFAULT_API_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent';
+
+const DEFAULT_SYSTEM_PROMPT = `
+أنت مساعد ذكي متخصص في ترتيب رسائل واتساب الخاصة بوكالات العملة المشفرة.
+
+مهمتك: استخراج وترتيب المعلومات التالية من كل رسالة:
+- الاسم
+- العنوان
+- الايدي
+- رقم الهاتف
+- اسم الوكالة
+
+قواعد التنسيق العامة:
+- ضع كل حقل داخل البطاقة في سطر مستقل واحد تلو الآخر دون ترك أسطر فارغة بين الحقول.
+- افصل بين كل بطاقة رسالة وأخرى بسطر فارغ واحد فقط دون أي رموز مثل *** أو =====.
+- اكتب كل معرف (ID) بالشكل المناسب دون كتابة كلمة "الايدي" قبل الرقم.
+- لا تُكتب المبالغ أبداً.
+- يمنع تعديل أو تغيير الاسم إطلاقاً، اكتبه كما ورد حرفياً في الرسالة الأصلية.
+- فرّق دائماً بين أرقام الهواتف وأرقام الايديهات. الأرقام اللبنانية التي تبدأ بـ+961 أو 03 أو 70 أو 71 أو 76 أو 78 أو 79 تعد أرقام هواتف وليست ايديهات.
+- الأرقام التي تحتوي على فراغات أو شرطة وتبدأ بعلامة + أو 00 تعامل كأرقام هواتف، ولا يجوز اعتبارها ايديهات.
+- أي رقم يظهر بجانب كلمة "وكالة" أو بعد سطر الوكالة يجب اعتباره ايدياً إلا إذا كان رقماً هاتفياً لبنانياً.
+- حلّل الرسائل رسالة رسالة بالتتابع؛ لا تنتقل للرسالة التالية حتى تنتهي من تنسيق الرسالة الحالية.
+
+1) إذا كانت الرسالة تحتوي على ايدي واحد:
+الاسم
+العنوان
+رقم الايدي مباشرة تحت الاسم دون أي أقواس أو رموز أو كلمات إضافية (مثل 123456789).
+رقم الهاتف
+اسم الوكالة
+
+2) إذا كانت تحتوي على أكثر من ايدي:
+الاسم
+العنوان
+رقم الهاتف
+اسم الوكالة
+كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
+-------------------------
+المجموع :
+
+مثال توضيحي لرسالة تحتوي على أكثر من ايدي:
+مروان يوسف يوسفجه
+سوريا ادلب/ مشمشان
++0031669582
+وكالة موج لبحر
+48207546 ...
+48259631 ...
+-------------------------
+المجموع :
+
+  3) إذا كانت تحتوي على طريقة تحويل (الهرم، الفؤاد، شا كاش، شحن براتب، خصم من النسبة):
+  الاسم
+  العنوان
+  رقم الهاتف
+  ملاحظة : (اكتب نوع التحويل كما ورد)
+  اسم الوكالة
+  كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
+  -------------------------
+  المجموع :
+
+  4) إذا كانت تحتوي على عنوان محفظة (hex مثل 12776fae8670d360a11c2d1c5202103c):
+  الاسم
+  العنوان
+  رقم الهاتف
+  ملاحظة : شام كاش
+  <عنوان المحفظة>
+  اسم الوكالة
+  كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
+  -------------------------
+  المجموع :
+
+5) إذا كانت الرسالة فقط على الشكل أو حتى بشكل مختلف:
+الايدي
+اسم الوكالة
+→ تُترك كما هي وبنفس ترتيبها الأصلي.
+
+ضوابط إضافية:
+- لا تكتب سطر "المجموع :" إلا عندما يوجد أكثر من ايدي واحد.
+- لا تستخدم خط الفاصل "-------------------------" إلا عندما يوجد أكثر من ايدي واحد.
+- عند وجود أكثر من ايدي واحد، اكتب كل ايدي في سطر مستقل بالشكل "123456789 ..." فقط.
+- خيارات الترتيب:
+  - حسب الوكالة
+  - حسب العنوان
+  - حسب المبلغ
+  - أو إبقاء الترتيب الأصلي
+- خيار دمج المكرر:
+  - يتم الدمج فقط إذا كان الاسم نفسه تماماً لكن الايديهات مختلفة.
+  - غير ذلك لا دمج.
+- خيار إظهار الايديهات فقط:
+  - يتم تجميع الايديهات تحت اسم الوكالة بالشكل:
+    وكالة <اسم الوكالة>
+    <ID1>
+    <ID2>
+    <ID3>
+  - إذا لم يكن للـID وكالة معروفة يوضع تحت "وكالة غير معروفة".
+- لا تستخدم أي ايموجي في المخرجات إطلاقاً.
+- اترك سطر "المجموع :" دون أي أرقام أو كلمات إضافية بعده.
+- لا تهمل أي رسالة حتى وإن بدت مكررة أو غير مكتملة.
+- عامِل أرقام الهواتف اللبنانية (مثل +961، أو أرقام تبدأ بـ03، 70، 71، 76، 78، 79) كأرقام هواتف وليست ايديهات.
+- إذا لم يتوفر رقم الهاتف فاذكر "رقم الهاتف : غير متوفر".
+- حافظ على ترتيب الحقول كما هو موضح أعلاه.
+- بعد معالجة جميع الرسائل، أضف في النهاية سطر ملخص بالشكل "عدد الرسائل المحللة : X" حيث X هو عدد البطاقات التي قمت بتنظيمها بناءً على التحليل. يجب أن يكون هذا السطر خارج أي بطاقة أو مجموعة ايديهات.
+`;
 
 const getInitialStoredValue = (storageKey: string, fallback: string) => {
   if (typeof window !== 'undefined') {
@@ -45,6 +147,9 @@ const MessageOrganizer = () => {
   const [apiEndpoint, setApiEndpoint] = useState<string>(() =>
     getInitialStoredValue(STORAGE_KEYS.apiEndpoint, DEFAULT_API_ENDPOINT)
   );
+  const [customPrompt, setCustomPrompt] = useState<string>(() =>
+    getInitialStoredValue(STORAGE_KEYS.customPrompt, DEFAULT_SYSTEM_PROMPT)
+  );
   const [options, setOptions] = useState<ProcessingOptions>({
     sortBy: 'original',
     mergeDuplicates: false,
@@ -53,6 +158,10 @@ const MessageOrganizer = () => {
   const [hasProcessed, setHasProcessed] = useState(false);
   const [messageCountSummary, setMessageCountSummary] = useState('');
   const { toast } = useToast();
+  const isCustomPromptModified = useMemo(
+    () => customPrompt.trim() !== DEFAULT_SYSTEM_PROMPT.trim(),
+    [customPrompt]
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -67,6 +176,13 @@ const MessageOrganizer = () => {
     }
     window.localStorage.setItem(STORAGE_KEYS.apiEndpoint, apiEndpoint);
   }, [apiEndpoint]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(STORAGE_KEYS.customPrompt, customPrompt);
+  }, [customPrompt]);
   const autoSignature = useMemo(
     () =>
       JSON.stringify({
@@ -74,8 +190,9 @@ const MessageOrganizer = () => {
         options,
         apiKey,
         apiEndpoint,
+        customPrompt,
       }),
-    [apiEndpoint, apiKey, inputText, options]
+    [apiEndpoint, apiKey, customPrompt, inputText, options]
   );
   const lastProcessedSignature = useRef<string>('');
   const pendingAutoSignature = useRef<string | null>(null);
@@ -215,107 +332,8 @@ const MessageOrganizer = () => {
 - ${showOnlyIdsInstruction}
 `;
 
-        const systemPrompt = `
-أنت مساعد ذكي متخصص في ترتيب رسائل واتساب الخاصة بوكالات العملة المشفرة.
-
-مهمتك: استخراج وترتيب المعلومات التالية من كل رسالة:
-- الاسم
-- العنوان
-- الايدي
-- رقم الهاتف
-- اسم الوكالة
-
-قواعد التنسيق العامة:
-- ضع كل حقل داخل البطاقة في سطر مستقل واحد تلو الآخر دون ترك أسطر فارغة بين الحقول.
-- افصل بين كل بطاقة رسالة وأخرى بسطر فارغ واحد فقط دون أي رموز مثل *** أو =====.
-- اكتب كل معرف (ID) بالشكل المناسب دون كتابة كلمة "الايدي" قبل الرقم.
-- لا تُكتب المبالغ أبداً.
-- يمنع تعديل أو تغيير الاسم إطلاقاً، اكتبه كما ورد حرفياً في الرسالة الأصلية.
-- فرّق دائماً بين أرقام الهواتف وأرقام الايديهات. الأرقام اللبنانية التي تبدأ بـ+961 أو 03 أو 70 أو 71 أو 76 أو 78 أو 79 تعد أرقام هواتف وليست ايديهات.
-- الأرقام التي تحتوي على فراغات أو شرطة وتبدأ بعلامة + أو 00 تعامل كأرقام هواتف، ولا يجوز اعتبارها ايديهات.
-- أي رقم يظهر بجانب كلمة "وكالة" أو بعد سطر الوكالة يجب اعتباره ايدياً إلا إذا كان رقماً هاتفياً لبنانياً.
-- حلّل الرسائل رسالة رسالة بالتتابع؛ لا تنتقل للرسالة التالية حتى تنتهي من تنسيق الرسالة الحالية.
-
-1) إذا كانت الرسالة تحتوي على ايدي واحد:
-الاسم
-العنوان
-رقم الايدي مباشرة تحت الاسم دون أي أقواس أو رموز أو كلمات إضافية (مثل 123456789).
-رقم الهاتف
-اسم الوكالة
-
-2) إذا كانت تحتوي على أكثر من ايدي:
-الاسم
-العنوان
-رقم الهاتف
-اسم الوكالة
-كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
--------------------------
-المجموع :
-
-مثال توضيحي لرسالة تحتوي على أكثر من ايدي:
-مروان يوسف يوسفجه
-سوريا ادلب/ مشمشان
-+0031669582
-وكالة موج لبحر
-48207546 ...
-48259631 ...
--------------------------
-المجموع :
-
-  3) إذا كانت تحتوي على طريقة تحويل (الهرم، الفؤاد، شام كاش، شحن براتب، خصم من النسبة):
-  الاسم
-  العنوان
-  رقم الهاتف
-  ملاحظة : (اكتب نوع التحويل كما ورد)
-  اسم الوكالة
-  كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
-  -------------------------
-  المجموع :
-
-  4) إذا كانت تحتوي على عنوان محفظة (hex مثل 12776fae8670d360a11c2d1c5202103c):
-  الاسم
-  العنوان
-  رقم الهاتف
-  ملاحظة : شام كاش
-  <عنوان المحفظة>
-  اسم الوكالة
-  كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
-  -------------------------
-  المجموع :
-
-5) إذا كانت الرسالة فقط على الشكل أو حتى بشكل مختلف:
-الايدي
-اسم الوكالة
-→ تُترك كما هي وبنفس ترتيبها الأصلي.
-
-ضوابط إضافية:
-- لا تكتب سطر "المجموع :" إلا عندما يوجد أكثر من ايدي واحد.
-- لا تستخدم خط الفاصل "-------------------------" إلا عندما يوجد أكثر من ايدي واحد.
-- عند وجود أكثر من ايدي واحد، اكتب كل ايدي في سطر مستقل بالشكل "123456789 ..." فقط.
-- خيارات الترتيب:
-  - حسب الوكالة
-  - حسب العنوان
-  - حسب المبلغ
-  - أو إبقاء الترتيب الأصلي
-- خيار دمج المكرر:
-  - يتم الدمج فقط إذا كان الاسم نفسه تماماً لكن الايديهات مختلفة.
-  - غير ذلك لا دمج.
-- خيار إظهار الايديهات فقط:
-  - يتم تجميع الايديهات تحت اسم الوكالة بالشكل:
-    وكالة <اسم الوكالة>
-    <ID1>
-    <ID2>
-    <ID3>
-  - إذا لم يكن للـID وكالة معروفة يوضع تحت "وكالة غير معروفة".
-- لا تستخدم أي ايموجي في المخرجات إطلاقاً.
-- اترك سطر "المجموع :" دون أي أرقام أو كلمات إضافية بعده.
-- لا تهمل أي رسالة حتى وإن بدت مكررة أو غير مكتملة.
-- عامِل أرقام الهواتف اللبنانية (مثل +961، أو أرقام تبدأ بـ03، 70، 71، 76، 78، 79) كأرقام هواتف وليست ايديهات.
-- إذا لم يتوفر رقم الهاتف فاذكر "رقم الهاتف : غير متوفر".
-- حافظ على ترتيب الحقول كما هو موضح أعلاه.
-- بعد معالجة جميع الرسائل، أضف في النهاية سطر ملخص بالشكل "عدد الرسائل المحللة : X" حيث X هو عدد البطاقات التي قمت بتنظيمها بناءً على التحليل. يجب أن يكون هذا السطر خارج أي بطاقة أو مجموعة ايديهات.
-${optionsGuidance}
-`;
+        const basePrompt = (customPrompt.trim() ? customPrompt : DEFAULT_SYSTEM_PROMPT).trim();
+        const systemPrompt = `${basePrompt}\n\n${optionsGuidance}`;
 
         const trimmedEndpoint = apiEndpoint.trim();
         const key = encodeURIComponent(apiKey.trim());
@@ -390,7 +408,7 @@ ${optionsGuidance}
         setIsProcessing(false);
       }
     },
-    [apiEndpoint, apiKey, autoSignature, inputText, options, toast]
+    [apiEndpoint, apiKey, autoSignature, customPrompt, inputText, options, toast]
   );
 
   useEffect(() => {
@@ -413,7 +431,7 @@ ${optionsGuidance}
 
     pendingAutoSignature.current = null;
     processMessages('auto');
-  }, [apiEndpoint, apiKey, autoSignature, hasProcessed, inputText, isProcessing, options, processMessages]);
+  }, [apiEndpoint, apiKey, autoSignature, customPrompt, hasProcessed, inputText, isProcessing, options, processMessages]);
 
   useEffect(() => {
     if (!pendingAutoSignature.current) {
@@ -445,7 +463,7 @@ ${optionsGuidance}
     if (signatureToRun) {
       processMessages('auto');
     }
-  }, [apiEndpoint, apiKey, autoSignature, hasProcessed, inputText, isProcessing, processMessages]);
+  }, [apiEndpoint, apiKey, autoSignature, customPrompt, hasProcessed, inputText, isProcessing, processMessages]);
 
   const copyToClipboard = () => {
     const fullText = messageCountSummary ? `${outputText}\n\n${messageCountSummary}`.trim() : outputText;
@@ -547,6 +565,33 @@ ${optionsGuidance}
                 />
                 <p className="text-xs text-muted-foreground">
                   استخدم الرابط الافتراضي أو عدّله إذا كنت تفضّل نموذجاً أو إصداراً مختلفاً من Gemini.
+                </p>
+              </div>
+
+              <Separator />
+
+              {/* Custom Prompt Editor */}
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Label htmlFor="customPrompt">منطق المعالجة</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCustomPrompt(DEFAULT_SYSTEM_PROMPT)}
+                    disabled={!isCustomPromptModified}
+                  >
+                    إعادة التعيين للوضع الافتراضي
+                  </Button>
+                </div>
+                <Textarea
+                  id="customPrompt"
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  className="min-h-[260px] font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  يمكنك تعديل التعليمات التفصيلية لتنسيق الرسائل هنا، وسيتم حفظ التغييرات محلياً تلقائياً.
                 </p>
               </div>
 
