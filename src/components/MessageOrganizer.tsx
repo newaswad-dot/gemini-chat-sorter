@@ -3,12 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { MessageCircle, Settings, Sparkles, Copy, Download, Wifi, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { Input } from '@/components/ui/input';
 
 interface ProcessingOptions {
   sortBy: 'agency' | 'location' | 'amount' | 'original';
@@ -19,7 +17,6 @@ interface ProcessingOptions {
 const STORAGE_KEYS = {
   apiKey: 'gemini_api_key',
   apiEndpoint: 'gemini_api_endpoint',
-  customPrompt: 'gemini_custom_prompt',
 } as const;
 
 const DEFAULT_API_KEY = 'AIzaSyCynyALJ4poVtL2Pm68ZBxkAft_-X7i-yc';
@@ -29,41 +26,63 @@ const DEFAULT_API_ENDPOINT =
 const DEFAULT_SYSTEM_PROMPT = `
 أنت مساعد ذكي متخصص في ترتيب رسائل واتساب الخاصة بوكالات العملة المشفرة.
 
-مهمتك: استخراج وترتيب المعلومات التالية من كل رسالة:
-- الاسم
-- العنوان
-- الايدي
-- رقم الهاتف
-- اسم الوكالة
+مهمتك:
+
+استخراج وترتيب المعلومات التالية من كل رسالة:
+
+الاسم
+
+العنوان
+
+الايدي
+
+رقم الهاتف
+
+اسم الوكالة
+
 
 قواعد التنسيق العامة:
-- ضع كل حقل داخل البطاقة في سطر مستقل واحد تلو الآخر دون ترك أسطر فارغة بين الحقول.
-- افصل بين كل بطاقة رسالة وأخرى بسطر فارغ واحد فقط دون أي رموز مثل *** أو =====.
-- اكتب كل معرف (ID) بالشكل المناسب دون كتابة كلمة "الايدي" قبل الرقم.
-- لا تُكتب المبالغ أبداً.
-- يمنع تعديل أو تغيير الاسم إطلاقاً، اكتبه كما ورد حرفياً في الرسالة الأصلية.
-- فرّق دائماً بين أرقام الهواتف وأرقام الايديهات. الأرقام اللبنانية التي تبدأ بـ+961 أو 03 أو 70 أو 71 أو 76 أو 78 أو 79 تعد أرقام هواتف وليست ايديهات.
-- الأرقام التي تحتوي على فراغات أو شرطة وتبدأ بعلامة + أو 00 تعامل كأرقام هواتف، ولا يجوز اعتبارها ايديهات.
-- أي رقم يظهر بجانب كلمة "وكالة" أو بعد سطر الوكالة يجب اعتباره ايدياً إلا إذا كان رقماً هاتفياً لبنانياً.
-- حلّل الرسائل رسالة رسالة بالتتابع؛ لا تنتقل للرسالة التالية حتى تنتهي من تنسيق الرسالة الحالية.
 
-1) إذا كانت الرسالة تحتوي على ايدي واحد:
+ضع كل حقل في سطر مستقل.
+لا تترك أسطر فارغة بين الحقول.
+افصل بين البطاقات بسطر فارغ واحد فقط.
+لا تستخدم رموز مثل *** أو =====.
+اكتب الايدي مباشرة كرقم دون كلمة "الايدي".
+لا تكتب المبالغ أبداً.
+الاسم يكتب كما ورد حرفياً.
+فرّق بين الهاتف والايدي:
+
+الأرقام اللبنانية (+961، 03، 70، 71، 76، 78، 79) = هواتف.
+الأرقام التي تبدأ بـ+ أو 00 مع شرطة أو فراغ = هواتف.
+الأرقام بجانب كلمة "وكالة" = ايديهات إلا إذا كانت أرقام هواتف لبنانية.
+
+
+حلّل الرسائل واحدة تلو الأخرى بالترتيب.
+
+
+الحالات:
+
+1) رسالة تحتوي على ايدي واحد:
+
 الاسم
 العنوان
-رقم الايدي مباشرة تحت الاسم دون أي أقواس أو رموز أو كلمات إضافية (مثل 123456789).
+123456789
 رقم الهاتف
 اسم الوكالة
 
-2) إذا كانت تحتوي على أكثر من ايدي:
+2) رسالة تحتوي على أكثر من ايدي:
+
 الاسم
 العنوان
 رقم الهاتف
 اسم الوكالة
-كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
+123456789 ...
+987654321 ...
 -------------------------
 المجموع :
 
-مثال توضيحي لرسالة تحتوي على أكثر من ايدي:
+مثال:
+
 مروان يوسف يوسفجه
 سوريا ادلب/ مشمشان
 +0031669582
@@ -73,58 +92,62 @@ const DEFAULT_SYSTEM_PROMPT = `
 -------------------------
 المجموع :
 
-  3) إذا كانت تحتوي على طريقة تحويل (الهرم، الفؤاد، شا كاش، شحن براتب، خصم من النسبة):
-  الاسم
-  العنوان
-  رقم الهاتف
-  ملاحظة : (اكتب نوع التحويل كما ورد)
-  اسم الوكالة
-  كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
-  -------------------------
-  المجموع :
+3) إذا احتوت على طريقة تحويل (الهرم، الفؤاد، شا كاش، شحن براتب، خصم من النسبة):
 
-  4) إذا كانت تحتوي على عنوان محفظة (hex مثل 12776fae8670d360a11c2d1c5202103c):
-  الاسم
-  العنوان
-  رقم الهاتف
-  ملاحظة : شام كاش
-  <عنوان المحفظة>
-  اسم الوكالة
-  كل ايدي في سطر مستقل بالشكل "123456789 ..." مع الحفاظ على الرموز الثلاث نقاط فقط.
-  -------------------------
-  المجموع :
-
-5) إذا كانت الرسالة فقط على الشكل أو حتى بشكل مختلف:
-الايدي
+الاسم
+العنوان
+رقم الهاتف
+ملاحظة : <نوع التحويل>
 اسم الوكالة
-→ تُترك كما هي وبنفس ترتيبها الأصلي.
+<ID1 ...>
+<ID2 ...>
+-------------------------
+المجموع :
+
+4) إذا احتوت على عنوان محفظة (hex):
+
+الاسم
+العنوان
+رقم الهاتف
+ملاحظة : شام كاش
+<عنوان المحفظة>
+اسم الوكالة
+<ID1 ...>
+<ID2 ...>
+-------------------------
+المجموع :
+
+5) إذا كانت الرسالة على الشكل (الايدي + الوكالة فقط):
+
+<ID>
+<اسم الوكالة>
+
+→ تكتب كما هي.
 
 ضوابط إضافية:
-- لا تكتب سطر "المجموع :" إلا عندما يوجد أكثر من ايدي واحد.
-- لا تستخدم خط الفاصل "-------------------------" إلا عندما يوجد أكثر من ايدي واحد.
-- عند وجود أكثر من ايدي واحد، اكتب كل ايدي في سطر مستقل بالشكل "123456789 ..." فقط.
-- خيارات الترتيب:
-  - حسب الوكالة
-  - حسب العنوان
-  - حسب المبلغ
-  - أو إبقاء الترتيب الأصلي
-- خيار دمج المكرر:
-  - يتم الدمج فقط إذا كان الاسم نفسه تماماً لكن الايديهات مختلفة.
-  - غير ذلك لا دمج.
-- خيار إظهار الايديهات فقط:
-  - يتم تجميع الايديهات تحت اسم الوكالة بالشكل:
-    وكالة <اسم الوكالة>
-    <ID1>
-    <ID2>
-    <ID3>
-  - إذا لم يكن للـID وكالة معروفة يوضع تحت "وكالة غير معروفة".
-- لا تستخدم أي ايموجي في المخرجات إطلاقاً.
-- اترك سطر "المجموع :" دون أي أرقام أو كلمات إضافية بعده.
-- لا تهمل أي رسالة حتى وإن بدت مكررة أو غير مكتملة.
-- عامِل أرقام الهواتف اللبنانية (مثل +961، أو أرقام تبدأ بـ03، 70، 71، 76، 78، 79) كأرقام هواتف وليست ايديهات.
-- إذا لم يتوفر رقم الهاتف فاذكر "رقم الهاتف : غير متوفر".
-- حافظ على ترتيب الحقول كما هو موضح أعلاه.
-- بعد معالجة جميع الرسائل، أضف في النهاية سطر ملخص بالشكل "عدد الرسائل المحللة : X" حيث X هو عدد البطاقات التي قمت بتنظيمها بناءً على التحليل. يجب أن يكون هذا السطر خارج أي بطاقة أو مجموعة ايديهات.
+
+"المجموع :" يكتب فقط عند وجود أكثر من ايدي.
+خط الفاصل "-------------------------" يستخدم فقط عند وجود أكثر من ايدي.
+خيار الدمج: يدمج فقط إذا الاسم نفسه بالضبط لكن ايديهات مختلفة.
+خيار إظهار الايديهات فقط:
+
+
+وكالة <اسم الوكالة>
+<ID1>
+<ID2>
+<ID3>
+
+إذا لم يعرف الوكالة:
+
+
+وكالة غير معروفة
+<ID>
+
+لا تستخدم ايموجي.
+لا تهمل أي رسالة حتى لو بدت ناقصة أو مكررة.
+اكتب عدد الرسائل في الاسفل
+
+يتم كتابة عدد الرسائل بنائن على الرسائل وليس الايديهات
 `;
 
 const getInitialStoredValue = (storageKey: string, fallback: string) => {
@@ -143,12 +166,9 @@ const MessageOrganizer = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'unknown'>('unknown');
-  const [apiKey, setApiKey] = useState<string>(() => getInitialStoredValue(STORAGE_KEYS.apiKey, DEFAULT_API_KEY));
-  const [apiEndpoint, setApiEndpoint] = useState<string>(() =>
+  const [apiKey] = useState<string>(() => getInitialStoredValue(STORAGE_KEYS.apiKey, DEFAULT_API_KEY));
+  const [apiEndpoint] = useState<string>(() =>
     getInitialStoredValue(STORAGE_KEYS.apiEndpoint, DEFAULT_API_ENDPOINT)
-  );
-  const [customPrompt, setCustomPrompt] = useState<string>(() =>
-    getInitialStoredValue(STORAGE_KEYS.customPrompt, DEFAULT_SYSTEM_PROMPT)
   );
   const [options, setOptions] = useState<ProcessingOptions>({
     sortBy: 'original',
@@ -158,10 +178,6 @@ const MessageOrganizer = () => {
   const [hasProcessed, setHasProcessed] = useState(false);
   const [messageCountSummary, setMessageCountSummary] = useState('');
   const { toast } = useToast();
-  const isCustomPromptModified = useMemo(
-    () => customPrompt.trim() !== DEFAULT_SYSTEM_PROMPT.trim(),
-    [customPrompt]
-  );
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -177,12 +193,6 @@ const MessageOrganizer = () => {
     window.localStorage.setItem(STORAGE_KEYS.apiEndpoint, apiEndpoint);
   }, [apiEndpoint]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    window.localStorage.setItem(STORAGE_KEYS.customPrompt, customPrompt);
-  }, [customPrompt]);
   const autoSignature = useMemo(
     () =>
       JSON.stringify({
@@ -190,9 +200,8 @@ const MessageOrganizer = () => {
         options,
         apiKey,
         apiEndpoint,
-        customPrompt,
       }),
-    [apiEndpoint, apiKey, customPrompt, inputText, options]
+    [apiEndpoint, apiKey, inputText, options]
   );
   const lastProcessedSignature = useRef<string>('');
   const pendingAutoSignature = useRef<string | null>(null);
@@ -332,8 +341,7 @@ const MessageOrganizer = () => {
 - ${showOnlyIdsInstruction}
 `;
 
-        const basePrompt = (customPrompt.trim() ? customPrompt : DEFAULT_SYSTEM_PROMPT).trim();
-        const systemPrompt = `${basePrompt}\n\n${optionsGuidance}`;
+        const systemPrompt = `${DEFAULT_SYSTEM_PROMPT.trim()}\n\n${optionsGuidance}`;
 
         const trimmedEndpoint = apiEndpoint.trim();
         const key = encodeURIComponent(apiKey.trim());
@@ -408,7 +416,7 @@ const MessageOrganizer = () => {
         setIsProcessing(false);
       }
     },
-    [apiEndpoint, apiKey, autoSignature, customPrompt, inputText, options, toast]
+    [apiEndpoint, apiKey, autoSignature, inputText, options, toast]
   );
 
   useEffect(() => {
@@ -431,7 +439,7 @@ const MessageOrganizer = () => {
 
     pendingAutoSignature.current = null;
     processMessages('auto');
-  }, [apiEndpoint, apiKey, autoSignature, customPrompt, hasProcessed, inputText, isProcessing, options, processMessages]);
+  }, [apiEndpoint, apiKey, autoSignature, hasProcessed, inputText, isProcessing, options, processMessages]);
 
   useEffect(() => {
     if (!pendingAutoSignature.current) {
@@ -463,7 +471,7 @@ const MessageOrganizer = () => {
     if (signatureToRun) {
       processMessages('auto');
     }
-  }, [apiEndpoint, apiKey, autoSignature, customPrompt, hasProcessed, inputText, isProcessing, processMessages]);
+  }, [apiEndpoint, apiKey, autoSignature, hasProcessed, inputText, isProcessing, processMessages]);
 
   const copyToClipboard = () => {
     const fullText = messageCountSummary ? `${outputText}\n\n${messageCountSummary}`.trim() : outputText;
@@ -534,91 +542,18 @@ const MessageOrganizer = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* API Key Input */}
               <div className="space-y-2">
-                <Label htmlFor="apiKey">مفتاح Gemini API</Label>
-                <Input
-                  id="apiKey"
-                  type="password"
-                  placeholder="أدخل مفتاح API الخاص بك"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="font-mono text-sm"
-                />
+                <div className="rounded-md border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">
+                  تم تثبيت إعدادات Gemini الافتراضية بما في ذلك مفتاح API، رابط الواجهة، منطق المعالجة، وترتيب النتائج.
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  احصل على مفتاحك من{' '}
-                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                    Google AI Studio
-                  </a>
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="apiEndpoint">رابط واجهة Gemini API</Label>
-                <Input
-                  id="apiEndpoint"
-                  type="text"
-                  placeholder="أدخل رابط واجهة Gemini API"
-                  value={apiEndpoint}
-                  onChange={(e) => setApiEndpoint(e.target.value)}
-                  className="font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  استخدم الرابط الافتراضي أو عدّله إذا كنت تفضّل نموذجاً أو إصداراً مختلفاً من Gemini.
+                  سيتم استخدام هذه الإعدادات تلقائياً ولا حاجة لإدخالها يدوياً.
                 </p>
               </div>
 
               <Separator />
 
-              {/* Custom Prompt Editor */}
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Label htmlFor="customPrompt">منطق المعالجة</Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setCustomPrompt(DEFAULT_SYSTEM_PROMPT)}
-                    disabled={!isCustomPromptModified}
-                  >
-                    إعادة التعيين للوضع الافتراضي
-                  </Button>
-                </div>
-                <Textarea
-                  id="customPrompt"
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  className="min-h-[260px] font-mono text-sm"
-                />
-                <p className="text-xs text-muted-foreground">
-                  يمكنك تعديل التعليمات التفصيلية لتنسيق الرسائل هنا، وسيتم حفظ التغييرات محلياً تلقائياً.
-                </p>
-              </div>
-
-              <Separator />
-
-              {/* Processing Options */}
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>ترتيب النتائج</Label>
-                  <Select
-                    value={options.sortBy}
-                    onValueChange={(value: ProcessingOptions['sortBy']) =>
-                      setOptions(prev => ({ ...prev, sortBy: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="original">الترتيب الأصلي</SelectItem>
-                      <SelectItem value="agency">حسب الوكالة</SelectItem>
-                      <SelectItem value="location">حسب العنوان</SelectItem>
-                      <SelectItem value="amount">حسب المبلغ</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
+              <div className="space-y-3">
                 <div className="flex items-center space-x-2 space-x-reverse">
                   <Checkbox
                     id="mergeDuplicates"
@@ -640,6 +575,10 @@ const MessageOrganizer = () => {
                     إظهار الايديهات فقط
                   </Label>
                 </div>
+
+                <p className="text-xs text-muted-foreground">
+                  ترتيب النتائج مثبت على الترتيب الأصلي لضمان الالتزام بالتعليمات المعتمدة.
+                </p>
               </div>
 
               <Separator />
